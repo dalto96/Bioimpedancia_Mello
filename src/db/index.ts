@@ -1,94 +1,69 @@
 /**
  * HEFARMA Body Analysis System
- * Database connection module with SSL support for Neon/Supabase
+ * Database connection module
+ * 
+ * Works in TWO modes:
+ * 1. WITH database: Set DATABASE_URL env var → real PostgreSQL
+ * 2. WITHOUT database: No DATABASE_URL → demo mode with sample data
  */
 
 const databaseUrl = process.env.DATABASE_URL;
 
+// Lazy-loaded database instances
 let _pool: any = null;
 let _db: any = null;
-let _connectionError: string | null = null;
 
+/**
+ * Get the database instance (lazy initialization)
+ * Returns null if DATABASE_URL is not set
+ */
 export async function getDb() {
   if (!databaseUrl) return null;
+  
   if (_db) return _db;
   
   try {
     const { drizzle } = await import("drizzle-orm/node-postgres");
     const { Pool } = await import("pg");
     
-    // Parse SSL from connection string and add explicit SSL config
-    // Neon, Supabase, and other cloud providers require SSL
-    const poolConfig: any = {
-      connectionString: databaseUrl,
-      ssl: false,
-    };
-
-    // Detect if SSL is needed (Neon, Supabase, etc.)
-    if (
-      databaseUrl.includes("neon.tech") ||
-      databaseUrl.includes("supabase") ||
-      databaseUrl.includes("sslmode=require") ||
-      databaseUrl.includes("railway") ||
-      databaseUrl.includes("render.com") ||
-      databaseUrl.includes("aws-") ||
-      databaseUrl.includes("pooler")
-    ) {
-      poolConfig.ssl = { rejectUnauthorized: false };
-    }
-
-    // Remove sslmode from connection string to avoid conflict
-    const cleanUrl = databaseUrl.replace(/[?&]sslmode=[^&]+/, "");
-    poolConfig.connectionString = cleanUrl;
-
     const globalForDb = globalThis as typeof globalThis & {
       __hefarmaPool?: any;
     };
     
-    _pool = globalForDb.__hefarmaPool ?? new Pool(poolConfig);
+    _pool = globalForDb.__hefarmaPool ?? new Pool({ connectionString: databaseUrl });
     
     if (process.env.NODE_ENV !== "production") {
       globalForDb.__hefarmaPool = _pool;
     }
     
     _db = drizzle(_pool);
-    _connectionError = null;
-
-    // Test connection
-    try {
-      await _pool.query("SELECT 1");
-      console.log("✅ Database connected successfully");
-    } catch (testErr) {
-      console.error("❌ Database connection test failed:", testErr);
-      _db = null;
-      _pool = null;
-      _connectionError = String(testErr);
-      return null;
-    }
-
     return _db;
   } catch (error) {
-    console.error("Failed to initialize database:", error);
-    _connectionError = String(error);
+    console.error("Failed to connect to database:", error);
     return null;
   }
 }
 
+/**
+ * Get the pool (for direct SQL queries)
+ */
 export async function getPool() {
   if (!databaseUrl) return null;
   if (_pool) return _pool;
+  
+  // Initialize pool via getDb
   await getDb();
   return _pool;
 }
 
+/**
+ * Check if database is available
+ */
 export function isDatabaseAvailable(): boolean {
   return !!databaseUrl;
 }
 
-export function getConnectionError(): string | null {
-  return _connectionError;
-}
-
-// For backward compatibility
+// For backward compatibility - synchronous access
+// These will be null if database is not connected
 export const db = null as any;
 export const pool = null as any;

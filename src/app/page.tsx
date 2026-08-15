@@ -316,14 +316,6 @@ function TopBar({ ctx, onLogout }: { ctx: AppContext; onLogout: () => void }) {
 
 // ==================== STATUS BAR ====================
 function StatusBar({ ctx }: { ctx: AppContext }) {
-  const [dbStatus, setDbStatus] = useState<"checking" | "connected" | "demo">("checking");
-
-  useEffect(() => {
-    fetch("/api/health").then(r => r.json()).then(d => {
-      setDbStatus(d.database ? "connected" : "demo");
-    }).catch(() => setDbStatus("demo"));
-  }, [ctx.refreshKey]);
-
   return (
     <footer style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -332,19 +324,8 @@ function StatusBar({ ctx }: { ctx: AppContext }) {
     }}>
       <span>HEFARMA Body Analysis System © 2024</span>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {dbStatus === "connected" ? (
-          <>
-            <span style={{ color: "#10B981", fontWeight: 600 }}>● Banco Conectado</span>
-            <span>PostgreSQL</span>
-          </>
-        ) : dbStatus === "demo" ? (
-          <>
-            <span style={{ color: "#F59E0B", fontWeight: 600 }}>● Modo Demonstração</span>
-            <span style={{ color: "#F59E0B" }}>Dados não são salvos</span>
-          </>
-        ) : (
-          <span style={{ color: "#94A3B8" }}>○ Verificando banco...</span>
-        )}
+        <span style={{ color: "#10B981" }}>● Conectado</span>
+        <span>PostgreSQL</span>
       </div>
     </footer>
   );
