@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { demoEvaluations } from "@/lib/demo-data";
 
+/** Convert value to number or null - handles empty strings, NaN, undefined */
+function num(v: any): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  return isNaN(n) ? null : n;
+}
 export async function GET(request: NextRequest) {
   try {
     if (!process.env.DATABASE_URL) {
@@ -8,25 +14,20 @@ export async function GET(request: NextRequest) {
       const patientId = url.searchParams.get("patientId");
       const filtered = patientId ? demoEvaluations.filter(e => e.patientId === Number(patientId)) : demoEvaluations;
       return NextResponse.json({ evaluations: filtered });
-    }
-    
+    } 
     const { getDb } = await import("@/db");
     const db = await getDb();
     if (!db) return NextResponse.json({ evaluations: demoEvaluations });
-    
     const { evaluations, bodyMeasurements, bioimpedance, calculatedResults, patients } = await import("@/db/schema");
     const { eq, desc } = await import("drizzle-orm");
-
     const url = new URL(request.url);
     const patientId = url.searchParams.get("patientId");
-
     let evalRows;
     if (patientId) {
       evalRows = await db.select().from(evaluations).where(eq(evaluations.patientId, Number(patientId))).orderBy(desc(evaluations.evaluationDate));
     } else {
       evalRows = await db.select().from(evaluations).orderBy(desc(evaluations.evaluationDate)).limit(50);
     }
-
     const result = [];
     for (const ev of evalRows) {
       try {
@@ -60,66 +61,68 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ evaluations: demoEvaluations });
   }
 }
-
 export async function POST(request: NextRequest) {
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json({ success: false, error: "Banco de dados não conectado. Configure DATABASE_URL para salvar." }, { status: 400 });
     }
-    
     const { getDb } = await import("@/db");
     const db = await getDb();
     if (!db) return NextResponse.json({ success: false, error: "Banco de dados não conectado." }, { status: 400 });
-    
+    if (!db) return NextResponse.json({ success: false, error: "Banco de dados não conectado." }, { status: 400 });
     const { evaluations, bodyMeasurements, bioimpedance, calculatedResults } = await import("@/db/schema");
     const body = await request.json();
-
+    // Create evaluation
     const evalResult = await db.insert(evaluations).values({
-      patientId: body.patientId, userId: body.userId || 1,
+      patientId: Number(body.patientId), userId: Number(body.userId) || 1,
       evaluationDate: new Date().toISOString().split("T")[0], notes: body.notes || null,
     }).returning();
     const evalId = evalResult[0].id;
-
+    // Save body measurements
     if (body.measurements) {
       const m = body.measurements;
       await db.insert(bodyMeasurements).values({
-        evaluationId: evalId, height: m.height || null, weight: m.weight || null,
-        waist: m.waist || null, hip: m.hip || null, chest: m.chest || null,
-        neck: m.neck || null, leftArm: m.leftArm || null, rightArm: m.rightArm || null,
-        leftForearm: m.leftForearm || null, rightForearm: m.rightForearm || null,
-        leftThigh: m.leftThigh || null, rightThigh: m.rightThigh || null,
-        leftCalf: m.leftCalf || null, rightCalf: m.rightCalf || null,
-        shoulders: m.shoulders || null, abdomen: m.abdomen || null,
+        evaluationId: evalId,
+        height: num(m.height), weight: num(m.weight),
+        waist: num(m.waist), hip: num(m.hip), chest: num(m.chest),
+        neck: num(m.neck), leftArm: num(m.leftArm), rightArm: num(m.rightArm),
+        leftForearm: num(m.leftForearm), rightForearm: num(m.rightForearm),
+        leftThigh: num(m.leftThigh), rightThigh: num(m.rightThigh),
+        leftCalf: num(m.leftCalf), rightCalf: num(m.rightCalf),
+        shoulders: num(m.shoulders), abdomen: num(m.abdomen),
       });
     }
-
+    // Save bioimpedance
     if (body.bioimpedance) {
       const b = body.bioimpedance;
       await db.insert(bioimpedance).values({
-        evaluationId: evalId, bodyFatPct: b.bodyFatPct || null,
-        bodyFatKg: b.bodyFatKg || null, leanMass: b.leanMass || null,
-        muscleMass: b.muscleMass || null, musclePct: b.musclePct || null,
-        waterPct: b.waterPct || null, waterKg: b.waterKg || null,
-        boneMass: b.boneMass || null, proteinPct: b.proteinPct || null,
-        subcutaneousFat: b.subcutaneousFat || null, visceralFat: b.visceralFat || null,
-        metabolicAge: b.metabolicAge || null, basalMetabolism: b.basalMetabolism || null,
-        bmi: b.bmi || null, bodyScore: b.bodyScore || null,
+        evaluationId: evalId,
+        bodyFatPct: num(b.bodyFatPct), bodyFatKg: num(b.bodyFatKg),
+        leanMass: num(b.leanMass), muscleMass: num(b.muscleMass),
+        musclePct: num(b.musclePct), waterPct: num(b.waterPct),
+        waterKg: num(b.waterKg), boneMass: num(b.boneMass),
+        proteinPct: num(b.proteinPct), subcutaneousFat: num(b.subcutaneousFat),
+        visceralFat: num(b.visceralFat), metabolicAge: num(b.metabolicAge),
+        basalMetabolism: num(b.basalMetabolism),
+        bmi: num(b.bmi), bodyScore: num(b.bodyScore),
       });
     }
-
+    // Save calculated results
     if (body.calculatedResults) {
       const c = body.calculatedResults;
       await db.insert(calculatedResults).values({
-        evaluationId: evalId, bmi: c.bmi || null,
+        evaluationId: evalId,
+        bmi: num(c.bmi),
         bmiClassification: c.bmiClassification?.label || null,
-        idealWeight: c.idealWeight?.min || null,
-        leanBodyMass: c.leanBodyMass || null, fatMass: c.fatMass || null,
-        bodyFatPctCalc: c.bodyFatPctCalc || null,
-        waistHipRatio: c.waistHipRatio || null, bodyDensity: c.bodyDensity || null,
-        bodyAdiposityIndex: c.bodyAdiposityIndex || null,
-        bmr: c.bmr || null, dailyCalorieNeed: c.dailyCalorieNeed || null,
-        tee: c.tee || null, healthyWeightMin: c.idealWeight?.min || null,
-        healthyWeightMax: c.idealWeight?.max || null,
+        idealWeight: num(c.idealWeight?.min),
+        leanBodyMass: num(c.leanBodyMass), fatMass: num(c.fatMass),
+        bodyFatPctCalc: num(c.bodyFatPctCalc),
+        waistHipRatio: num(c.waistHipRatio), bodyDensity: num(c.bodyDensity),
+        bodyAdiposityIndex: num(c.bodyAdiposityIndex),
+        bmr: num(c.bmr), dailyCalorieNeed: num(c.dailyCalorieNeed),
+        tee: num(c.tee),
+        healthyWeightMin: num(c.idealWeight?.min),
+        healthyWeightMax: num(c.idealWeight?.max),
         metabolicAgeClass: c.metabolicAgeClass?.label || null,
         visceralFatClass: c.visceralFatClass?.label || null,
         muscleClass: c.muscleClass?.label || null,
@@ -128,9 +131,10 @@ export async function POST(request: NextRequest) {
         interpretation: c.interpretation || null,
       });
     }
-
     return NextResponse.json({ success: true, evaluationId: evalId });
   } catch (error) {
-    return NextResponse.json({ success: false, error: "Erro ao salvar avaliação" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Error saving evaluation:", msg);
+    return NextResponse.json({ success: false, error: "Erro ao salvar avaliação: " + msg }, { status: 500 });
   }
 }
