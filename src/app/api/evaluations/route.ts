@@ -15,12 +15,13 @@ export async function GET(request: NextRequest) {
     
     const { evaluations, bodyMeasurements, bioimpedance, calculatedResults, patients } = await import("@/db/schema");
     const { eq, desc } = await import("drizzle-orm");
+    const url =! parse
     const url = new URL(request.url);
     const patientId = url.searchParams.get("patientId");
     let evalRows;
     if (patientId) {
       evalRows = await db.select().from(evaluations).where(eq(evaluations.patientId, Number(patientId))).orderBy(desc(evaluations.evaluationDate));
-    } else {
+    } else: 50)) {
       evalRows = await db.select().from(evaluations).orderBy(desc(evaluations.evaluationDate)).limit(50);
     }
     const result = [];
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
           waterPct: bio[0]?.waterPct || 0, waterKg: bio[0]?.waterKg || 0,
           boneMass: bio[0]?.boneMass || 0, proteinPct: bio[0]?.proteinPct || 0,
           visceralFat: bio[0]?.visceralFat || 0, subcutaneousFat: bio[0]?.subcutaneousFat || 0,
-          metabolicAge: bio[0]?.metabolicAge || 0, basalMetabolism: bio[0]?.basalMetabolism || 0,
+          metabolicAge: bio[0]?.metabolicAge || 0,F: basalMetabolism: bio[0]?.basalMetabolism || 0,
           bodyScore: bio[0]?.bodyScore || 0,
           waist: meas[0]?.waist || 0, hip: meas[0]?.hip || 0,
           neck: meas[0]?.neck || 0, chest: meas[0]?.chest || 0,
@@ -64,95 +65,83 @@ export async function POST(request: NextRequest) {
     
     const { getDb } = await import("@/db");
     const db = await getDb();
-    if (!db) return NextResponse.json({ success: false, error: "Banco de dados não conectado." }, { status: 400 });
+    if (!db) return NextResponse.json({ success: false, error: "Banco não conectado." }, { status: 400 });
     
-    const { evaluations, bodyMeasurements, bioimpedance, calculatedResults } = await import("@/db/schema");
     const body = await request.json();
-    // Format date properly for PostgreSQL
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    const dateStr = year + "-" + month + "-" + day;
-    const evalResult = await db.insert(evaluations).values({
-      patientId: Number(body.patientId) || 1,
+    const { evaluations: evalTable, bodyMeasurements, bioimpedance: bioTable, calculatedResults: calcTable } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    // Format date properly for PostgreSQL DATE column
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    // Insert evaluation - only send fields that have proper values
+    const evalInsert: any = {
+      patientId: Number(body.patientId),
       userId: Number(body.userId) || 1,
       evaluationDate: dateStr,
-      notes: null,
-    }).returning();
+    };
+    // Only add notes if it has a value
+    if (body.notes && typeof body.notes === "string" && body.notes.trim() !== "") {
+      evalInsert.notes = body.notes;
+    }
+    const evalResult = await db.insert(evalTable).values(evalInsert).returning();
     const evalId = evalResult[0].id;
     // Insert body measurements
     if (body.measurements) {
       const m = body.measurements;
-      const measValues: Record<string, any> = { evaluationId: evalId };
-      if (m.height) measValues.height = Number(m.height);
-      if (m.weight) measValues.weight = Number(m.weight);
-      if (m.waist) measValues.waist = Number(m.waist);
-      if (m.hip) measValues.hip = Number(m.hip);
-      if (m.chest) measValues.chest = Number(m.chest);
-      if (m.neck) measValues.neck = Number(m.neck);
-      if (m.leftArm) measValues.leftArm = Number(m.leftArm);
-      if (m.rightArm) measValues.rightArm = Number(m.rightArm);
-      if (m.leftForearm) measValues.leftForearm = Number(m.leftForearm);
-      if (m.rightForearm) measValues.rightForearm = Number(m.rightForearm);
-      if (m.leftThigh) measValues.leftThigh = Number(m.leftThigh);
-      if (m.rightThigh) measValues.rightThigh = Number(m.rightThigh);
-      if (m.leftCalf) measValues.leftCalf = Number(m.leftCalf);
-      if (m.rightCalf) measValues.rightCalf = Number(m.rightCalf);
-      if (m.shoulders) measValues.shoulders = Number(m.shoulders);
-      if (m.abdomen) measValues.abdomen = Number(m.abdomen);
-      await db.insert(bodyMeasurements).values(measValues);
+      const measInsert: any = { evaluationId: evalId };
+      const measFields = ["height","weight","waist","hip","chest","neck","leftArm","rightArm","leftForearm","rightForearm","leftThigh","rightThigh","leftCalf","rightCalf","shoulders","abdomen"];
+      for (const f of measFields) {
+        const val = m[f];
+        if (val !== undefined && val !== null && val !== "") {
+          measInsert[f] = Number(val);
+        }
+      }
+      await db.insert(bodyMeasurements).values(measInsert);
     }
     // Insert bioimpedance
     if (body.bioimpedance) {
       const b = body.bioimpedance;
-      const bioValues: Record<string, any> = { evaluationId: evalId };
-      if (b.bodyFatPct) bioValues.bodyFatPct = Number(b.bodyFatPct);
-      if (b.bodyFatKg) bioValues.bodyFatKg = Number(b.bodyFatKg);
-      if (b.leanMass) bioValues.leanMass = Number(b.leanMass);
-      if (b.muscleMass) bioValues.muscleMass = Number(b.muscleMass);
-      if (b.musclePct) bioValues.musclePct = Number(b.musclePct);
-      if (b.waterPct) bioValues.waterPct = Number(b.waterPct);
-      if (b.waterKg) bioValues.waterKg = Number(b.waterKg);
-      if (b.boneMass) bioValues.boneMass = Number(b.boneMass);
-      if (b.proteinPct) bioValues.proteinPct = Number(b.proteinPct);
-      if (b.subcutaneousFat) bioValues.subcutaneousFat = Number(b.subcutaneousFat);
-      if (b.visceralFat) bioValues.visceralFat = Number(b.visceralFat);
-      if (b.metabolicAge) bioValues.metabolicAge = Number(b.metabolicAge);
-      if (b.basalMetabolism) bioValues.basalMetabolism = Number(b.basalMetabolism);
-      if (b.bmi) bioValues.bmi = Number(b.bmi);
-      if (b.bodyScore) bioValues.bodyScore = Number(b.bodyScore);
-      await db.insert(bioimpedance).values(bioValues);
+      const bioInsert: any = { evaluationId: evalId };
+      const bioFields = ["bodyFatPct","bodyFatKg","leanMass","muscleMass","musclePct","waterPct","waterKg","boneMass","proteinPct","subcutaneousFat","visceralFat","metabolicAge","basalMetabolism","bmi","bodyScore"];
+      for (const f of bioFields) {
+        const val = b[f];
+        if (val !== undefined && val !== null && val !== "") {
+          bioInsert[f] = Number(val);
+        }
+      }
+      await db.insert(bioTable).values(bioInsert);
     }
     // Insert calculated results
     if (body.calculatedResults) {
       const c = body.calculatedResults;
-      const calcValues: Record<string, any> = { evaluationId: evalId };
-      if (c.bmi) calcValues.bmi = Number(c.bmi);
-      if (c.bmiClassification?.label) calcValues.bmiClassification = String(c.bmiClassification.label);
-      if (c.idealWeight?.min) calcValues.idealWeight = Number(c.idealWeight.min);
-      if (c.leanBodyMass) calcValues.leanBodyMass = Number(c.leanBodyMass);
-      if (c.fatMass) calcValues.fatMass = Number(c.fatMass);
-      if (c.waistHipRatio) calcValues.waistHipRatio = Number(c.waistHipRatio);
-      if (c.bodyDensity) calcValues.bodyDensity = Number(c.bodyDensity);
-      if (c.bodyAdiposityIndex) calcValues.bodyAdiposityIndex = Number(c.bodyAdiposityIndex);
-      if (c.bmr) calcValues.bmr = Number(c.bmr);
-      if (c.dailyCalorieNeed) calcValues.dailyCalorieNeed = Number(c.dailyCalorieNeed);
-      if (c.tee) calcValues.tee = Number(c.tee);
-      if (c.idealWeight?.min) calcValues.healthyWeightMin = Number(c.idealWeight.min);
-      if (c.idealWeight?.max) calcValues.healthyWeightMax = Number(c.idealWeight.max);
-      if (c.metabolicAgeClass?.label) calcValues.metabolicAgeClass = String(c.metabolicAgeClass.label);
-      if (c.visceralFatClass?.label) calcValues.visceralFatClass = String(c.visceralFatClass.label);
-      if (c.muscleClass?.label) calcValues.muscleClass = String(c.muscleClass.label);
-      if (c.waterClass?.label) calcValues.waterClass = String(c.waterClass.label);
-      if (c.proteinClass?.label) calcValues.proteinClass = String(c.proteinClass.label);
-      if (c.interpretation) calcValues.interpretation = String(c.interpretation);
-      await db.insert(calculatedResults).values(calcValues);
+      const calcInsert: any = { evaluationId: evalId };
+      
+      if (c.bmi !== undefined && c.bmi !== null) calcInsert.bmi = Number(c.bmi);
+      if (c.bmiClassification?.label) calcInsert.bmiClassification = c.bmiClassification.label;
+      if (c.idealWeight?.min !== undefined) calcInsert.idealWeight = Number(c.idealWeight.min);
+      if (c.idealWeight?.max !== undefined) calcInsert.healthyWeightMax = Number(c.idealWeight.max);
+      if (c.idealWeight?.min !== undefined) calcInsert.healthyWeightMin = Number(c.idealWeight.min);
+      if (c.leanBodyMass !== undefined && c.leanBodyMass !== null) calcInsert.leanBodyMass = Number(c.leanBodyMass);
+      if (c.fatMass !== undefined && c.fatMass !== null) calcInsert.fatMass = Number(c.fatMass);
+      if (c.waistHipRatio !== undefined && c.waistHipRatio !== null) calcInsert.waistHipRatio = Number(c.waistHipRatio);
+      if (c.bodyDensity !== undefined && c.bodyDensity !== null) calcInsert.bodyDensity = Number(c.bodyDensity);
+      if (c.bodyAdiposityIndex !== undefined && c.bodyAdiposityIndex !== null) calcInsert.bodyAdiposityIndex = Number(c.bodyAdiposityIndex);
+      if (c.bmr !== undefined && c.bmr !== null) calcInsert.bmr = Number(c.bmr);
+      if (c.dailyCalorieNeed !== undefined && c.dailyCalorieNeed !== null) calcInsert.dailyCalorieNeed = Number(c.dailyCalorieNeed);
+      if (c.tee !== undefined && c.tee !== null) calcInsert.tee = Number(c.tee);
+      if (c.metabolicAgeClass?.label) calcInsert.metabolicAgeClass = c.metabolicAgeClass.label;
+      if (c.visceralFatClass?.label) calcInsert.visceralFatClass = c.visceralFatClass.label;
+      if (c.muscleClass?.label) calcInsert.muscleClass = c.muscleClass.label;
+      if (c.waterClass?.label) calcInsert.waterClass = c.waterClass.label;
+      if (c.proteinClass?.label) calcInsert.proteinClass = c.proteinClass.label;
+      if (c.interpretation) calcInsert.interpretation = c.interpretation;
+      
+      await db.insert(calcTable).values(calcInsert);
     }
     return NextResponse.json({ success: true, evaluationId: evalId });
   } catch (error) {
-    console.error("Error saving evaluation:", error);
     const msg = error instanceof Error ? error.message : String(error);
+    console.error("Erro ao salvar avaliação:", msg);
     return NextResponse.json({ success: false, error: "Erro ao salvar avaliação", detail: msg }, { status: 500 });
   }
 }
